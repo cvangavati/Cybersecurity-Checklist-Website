@@ -1,147 +1,271 @@
-# Brute-Force Login Protection
+'use strict';
 
-A runnable Node.js/Express authentication service with account lockout,
-progressive delays, per-IP rate limiting, and anti-enumeration guarantees,
-built for a financial-services login flow.
+/**
+ * AttemptStore: storage abstraction for the per-account failure/lockout state
+ * machine.
+ *
+ * Two concrete implementations satisfy the same contract:
+ *   - MemoryAttemptStore: single-process, synchronous mutation. Used by the
+ *     demo server and the test suite.
+ *   - RedisAttemptStore:  distributed, backed by ioredis. The increment-and-
+ *     check is performed inside a single atomic Lua script.
+ *
+ * The state machine, per account key:
+ *   1. recordFailure(): atomically increment the counter and refresh the
+ *      window TTL. If the counter reaches maxFailedAttempts, set
+ *      lockedUntil = now + lockoutDurationMs. Never increment while locked.
+ *   2. reset(): clear the counter (called on a successful, non-locked login).
+ *   3. getStatus(): report the effective count and whether the account is
+ *      currently locked, applying window + lockout expiry relative to now().
+ *
+ * A `now()` function is injected so tests can advance a virtual clock instead
+ * of sleeping for real minutes.
+ */
 
-## What it does
+const config = require('./config');
 
-- **Account lockout** — locks an account for 15 minutes after 3 consecutive
-  failed attempts within a 15-minute window.
-- **Progressive delays** — waits `0 / 1000 / 2000 ms` before responding to the
-  1st / 2nd / 3rd consecutive failure, slowing automated guessing.
-- **Per-IP rate limiting** — at most 10 login requests per IP per 60 seconds,
-  regardless of the targeted username (returns `429`).
-- **Anti-enumeration** — unknown username, wrong password, locked account, and
-  locked account with the correct password all return an identical
-  `401 {"error":"Invalid credentials"}` with no timing or header side-channels.
-- **Atomic state machine** — the increment-and-lock check is atomic
-  (synchronous mutation in memory; a single Lua script in Redis), so concurrent
-  failures can never lose an update or skip the lockout.
+class AttemptStore {
+  /**
+   * @param {object} [options]
+   * @param {() => number} [options.now] injected clock returning epoch ms
+   * @param {number} [options.maxFailedAttempts]
+   * @param {number} [options.lockoutDurationMs]
+   * @param {number} [options.windowMs]
+   */
+  constructor(options = {}) {
+    this.now = options.now || Date.now;
+    this.maxFailedAttempts =
+      options.maxFailedAttempts != null
+        ? options.maxFailedAttempts
+        : config.MAX_FAILED_ATTEMPTS;
+    this.lockoutDurationMs =
+      options.lockoutDurationMs != null
+        ? options.lockoutDurationMs
+        : config.LOCKOUT_DURATION_MS;
+    this.windowMs =
+      options.windowMs != null ? options.windowMs : config.ATTEMPT_WINDOW_MS;
+  }
 
-## Architecture
+  /* eslint-disable no-unused-vars */
+  // Record one failed attempt atomically. Resolves to:
+  //   { count, lockedUntil, becameLocked }
+  async recordFailure(key) {
+    throw new Error('not implemented');
+  }
 
-| File | Responsibility |
-| --- | --- |
-| `config.js` | All tunable constants — no magic numbers live anywhere else. |
-| `attemptStore.js` | `AttemptStore` interface + `MemoryAttemptStore` and `RedisAttemptStore` (ioredis, Lua). |
-| `auth.js` | Pure, unit-testable lockout logic with injected clock/bcrypt/delay/logger. |
-| `server.js` | Express wiring: `createApp()` factory, endpoints, per-IP limiter. |
-| `__tests__/lockout.test.js` | End-to-end lockout, anti-enumeration, concurrency, delay, and rate-limit tests. |
-| `__tests__/store.contract.test.js` | Contract suite run against both store implementations. |
+  // Report current state:
+  //   { count, lockedUntil, locked }
+  async getStatus(key) {
+    throw new Error('not implemented');
+  }
 
-A `now()` function is injected into the store and authenticator so lockout and
-window expiry are tested with a virtual clock — no real 15-minute sleeps.
+  // Reset the failure counter (and any lock) for a key.
+  async reset(key) {
+    throw new Error('not implemented');
+  }
 
-## Endpoints
+  // Release any resources (Redis connection, etc.).
+  async close() {}
+  /* eslint-enable no-unused-vars */
+}
 
-- `POST /register` `{username, password}` → `201` (demo helper). Password must be
-  at least 12 characters. Passwords are stored only as bcrypt hashes (cost 12).
-- `POST /login` `{username, password}` →
-  - `200 {"token":"<opaque token>"}` on success
-  - `401 {"error":"Invalid credentials"}` on any failure (generic, indistinguishable)
-  - `400` for malformed JSON or missing fields
-  - `429` from the per-IP rate limiter
+/**
+ * In-memory implementation. All mutation happens synchronously inside a single
+ * tick of the Node.js event loop, which makes recordFailure atomic with respect
+ * to other concurrent callers: there is no await between read and write, so two
+ * "simultaneous" failed attempts can never both observe the same count and both
+ * skip the lockout.
+ */
+class MemoryAttemptStore extends AttemptStore {
+  constructor(options = {}) {
+    super(options);
+    /** @type {Map<string, {count:number, windowExpiry:number, lockedUntil:number}>} */
+    this._entries = new Map();
+  }
 
-## Run instructions
+  _get(key) {
+    return (
+      this._entries.get(key) || { count: 0, windowExpiry: 0, lockedUntil: 0 }
+    );
+  }
 
-Requires Node.js 20+.
+  async recordFailure(key) {
+    const now = this.now();
+    const entry = this._get(key);
 
-```bash
-cd brute-force-auth
-npm install
+    // Never increment while the account is locked.
+    if (entry.lockedUntil > now) {
+      return {
+        count: entry.count,
+        lockedUntil: entry.lockedUntil,
+        becameLocked: false,
+      };
+    }
 
-# Run the full test suite (this is the acceptance gate).
-npm test
+    // Expire a stale counter: failures older than the window no longer count.
+    if (entry.windowExpiry !== 0 && now >= entry.windowExpiry) {
+      entry.count = 0;
+    }
 
-# Start the demo server (in-memory store, no Redis required).
-npm start
-# → listens on :3000 (override with PORT)
-```
+    entry.count += 1;
+    entry.windowExpiry = now + this.windowMs;
 
-### Try it
+    let becameLocked = false;
+    if (entry.count >= this.maxFailedAttempts) {
+      entry.lockedUntil = now + this.lockoutDurationMs;
+      becameLocked = true;
+    }
 
-```bash
-# Register a demo user
-curl -sX POST localhost:3000/register \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"alice","password":"correct-horse-battery-staple"}'
+    this._entries.set(key, entry);
+    return {
+      count: entry.count,
+      lockedUntil: entry.lockedUntil,
+      becameLocked,
+    };
+  }
 
-# Successful login
-curl -sX POST localhost:3000/login \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"alice","password":"correct-horse-battery-staple"}'
+  async getStatus(key) {
+    const now = this.now();
+    const entry = this._entries.get(key);
+    if (!entry) {
+      return { count: 0, lockedUntil: 0, locked: false };
+    }
 
-# Three wrong attempts lock the account; even the correct password then 401s.
-```
+    let count = entry.count;
+    if (entry.windowExpiry !== 0 && now >= entry.windowExpiry) {
+      count = 0;
+    }
 
-### Redis backend (optional)
+    return {
+      count,
+      lockedUntil: entry.lockedUntil,
+      locked: entry.lockedUntil > now,
+    };
+  }
 
-Set `REDIS_URL` to use the distributed, multi-instance-safe store and rate
-limiter:
+  async reset(key) {
+    this._entries.delete(key);
+  }
+}
 
-```bash
-REDIS_URL=redis://localhost:6379 npm start
-```
+/**
+ * Redis-backed implementation using ioredis.
+ *
+ * The increment-and-check is a single Lua script so that concurrent failed
+ * attempts across many processes are still atomic — Redis executes the script
+ * without interleaving. The counter key carries a PEXPIRE window TTL; when it
+ * lapses Redis deletes it and the next INCR naturally restarts at 1, giving us
+ * the "failures older than the window expire" behaviour for free.
+ *
+ * The ioredis client is injected rather than imported here, so this module can
+ * be required even in environments where ioredis is not installed. server.js
+ * performs the guarded require and only constructs this class when REDIS_URL is
+ * configured.
+ */
+const RECORD_FAILURE_LUA = `
+local countKey = KEYS[1]
+local lockKey  = KEYS[2]
+local now               = tonumber(ARGV[1])
+local maxFailedAttempts = tonumber(ARGV[2])
+local lockoutDurationMs = tonumber(ARGV[3])
+local windowMs          = tonumber(ARGV[4])
 
-When `REDIS_URL` is set, the `store.contract.test.js` suite additionally runs
-the full contract against `RedisAttemptStore`; without it, those cases are
-skipped cleanly and the in-memory contract still runs.
+local lockedUntil = tonumber(redis.call('GET', lockKey) or '0')
+if lockedUntil > now then
+  local existing = tonumber(redis.call('GET', countKey) or '0')
+  return { existing, lockedUntil, 0 }
+end
 
-## Logging
+local count = redis.call('INCR', countKey)
+redis.call('PEXPIRE', countKey, windowMs)
 
-Every failed attempt and every lockout emits a single structured JSON line:
+local becameLocked = 0
+local newLockedUntil = 0
+if count >= maxFailedAttempts then
+  newLockedUntil = now + lockoutDurationMs
+  redis.call('SET', lockKey, tostring(newLockedUntil), 'PX', lockoutDurationMs)
+  becameLocked = 1
+end
 
-```json
-{"timestamp":"...","event":"login_failed","usernameHash":"<sha256>","ip":"...","count":2}
-```
+return { count, newLockedUntil, becameLocked }
+`;
 
-Passwords, password lengths, and raw usernames are never logged; usernames are
-only ever recorded as a SHA-256 hash. Request bodies are never logged.
+class RedisAttemptStore extends AttemptStore {
+  /**
+   * @param {import('ioredis').Redis} redisClient a connected ioredis client
+   * @param {object} [options] same options as AttemptStore, plus keyPrefix
+   */
+  constructor(redisClient, options = {}) {
+    super(options);
+    if (!redisClient) {
+      throw new Error('RedisAttemptStore requires an ioredis client');
+    }
+    this.redis = redisClient;
+    this.keyPrefix = options.keyPrefix || config.REDIS_KEY_PREFIX;
 
-## Production hardening
+    this.redis.defineCommand('bfRecordFailure', {
+      numberOfKeys: 2,
+      lua: RECORD_FAILURE_LUA,
+    });
+  }
 
-The demo is intentionally minimal. Before production use, address each of the
-following:
+  _countKey(key) {
+    return `${this.keyPrefix}:count:${key}`;
+  }
 
-- **Redis deployment.** The in-memory store is single-process and loses all
-  lockout state on restart — trivially defeated by a process bounce and useless
-  behind more than one instance. Deploy `RedisAttemptStore` against a highly
-  available Redis (primary + replicas or Cluster), enable persistence
-  (AOF/RDB) so lockout state survives failover, use TLS (`rediss://`) and
-  AUTH/ACLs, and set `maxmemory`/eviction policy so counter keys are never
-  evicted under pressure (a security counter must not be silently dropped).
-- **HTTPS/TLS termination.** Never accept credentials over plaintext. Terminate
-  TLS at a load balancer or reverse proxy (or in-process), enforce HSTS,
-  redirect HTTP→HTTPS, and set `app.set('trust proxy', ...)` correctly so the
-  per-IP limiter keys on the real client IP (`X-Forwarded-For`) rather than the
-  proxy's address — otherwise all traffic shares one bucket or is trivially
-  spoofable.
-- **Secrets management.** Redis URLs/passwords, token-signing keys, and pepper
-  values must come from a secrets manager (Vault, AWS/GCP Secrets Manager,
-  Kubernetes secrets) — never from source, `.env` in the repo, or logs. Rotate
-  regularly and scope credentials to least privilege.
-- **CAPTCHA escalation.** Add a risk-based challenge (CAPTCHA / proof-of-work)
-  that escalates after the first failure or on anomalous IP/device/velocity
-  signals, before the hard lockout triggers. This raises attacker cost without
-  immediately locking legitimate users, and blunts distributed low-and-slow
-  attacks that stay under the per-account threshold.
-- **Credential-stuffing monitoring.** The per-account counter does not catch an
-  attacker spraying one password across thousands of accounts from many IPs.
-  Monitor global failure rates, failures-per-IP and per-ASN, impossible-travel,
-  and breached-password hits (e.g. Have I Been Pwned k-anonymity range API),
-  and feed alerts to SOC tooling. Consider device fingerprinting and
-  reputation-based blocking at the edge.
-- **Account-lockout DoS trade-offs of the 3-attempt threshold.** A low, strict
-  threshold (3) is strong against targeted guessing but is itself a
-  denial-of-service vector: an attacker who knows a victim's username can lock
-  them out repeatedly and cheaply. Mitigations: prefer per-IP/velocity throttling
-  and progressive delays + CAPTCHA over hard account locks where possible; scope
-  locks so they cannot be triggered purely by an unauthenticated third party
-  (e.g. require some signal tying attempts to the real user); cap lockout
-  duration and auto-unlock (already implemented via `LOCKOUT_DURATION_MS`);
-  provide a fast, well-protected self-service unlock/step-up path; and alert on
-  mass-lockout patterns that indicate the lockout mechanism is being weaponized.
-  The 3-attempt value is a deliberate, tunable trade-off in `config.js` between
-  guessing resistance and lockout-DoS exposure — raise it, or gate it behind
-  risk signals, if lockout-abuse is the greater threat for your user base.
+  _lockKey(key) {
+    return `${this.keyPrefix}:lock:${key}`;
+  }
+
+  async recordFailure(key) {
+    const now = this.now();
+    const result = await this.redis.bfRecordFailure(
+      this._countKey(key),
+      this._lockKey(key),
+      now,
+      this.maxFailedAttempts,
+      this.lockoutDurationMs,
+      this.windowMs
+    );
+    // Lua returns integers as a flat array [count, lockedUntil, becameLocked].
+    return {
+      count: Number(result[0]),
+      lockedUntil: Number(result[1]),
+      becameLocked: Number(result[2]) === 1,
+    };
+  }
+
+  async getStatus(key) {
+    const now = this.now();
+    const [lockRaw, countRaw] = await this.redis
+      .pipeline()
+      .get(this._lockKey(key))
+      .get(this._countKey(key))
+      .exec()
+      .then((res) => [res[0][1], res[1][1]]);
+
+    const lockedUntil = Number(lockRaw || 0);
+    const count = Number(countRaw || 0);
+    return {
+      count,
+      lockedUntil,
+      locked: lockedUntil > now,
+    };
+  }
+
+  async reset(key) {
+    await this.redis.del(this._countKey(key), this._lockKey(key));
+  }
+
+  async close() {
+    if (this.redis && typeof this.redis.quit === 'function') {
+      await this.redis.quit();
+    }
+  }
+}
+
+module.exports = {
+  AttemptStore,
+  MemoryAttemptStore,
+  RedisAttemptStore,
+};

@@ -1,0 +1,6 @@
+{
+  "name": "strong-password-policy",
+  "version": "1.0.0",
+  "description": "Strong Password Policy project",
+  "main": "script.js"
+}

@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vault — Secure Registration</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0A0C10;
+    --surface: #141821;
+    --surface-2: #1B202B;
+    --border: #262B38;
+    --text: #E7E9EE;
+    --muted: #8890A0;
+    --accent: #8B5CF6;
+    --accent-dim: #8B5CF633;
+    --cyan: #22D3EE;
+    --danger: #FF5C7A;
+    --warning: #FFB454;
+    --success: #34D399;
+    --mono: 'JetBrains Mono', monospace;
+    --body: 'Manrope', sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--body);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  /* Ambient scanline / grid backdrop */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 48px 48px;
+    opacity: 0.15;
+    pointer-events: none;
+  }
+
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(circle at 50% 0%, var(--accent-dim), transparent 60%);
+    pointer-events: none;
+  }
+
+  .card {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 440px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 36px 32px;
+    box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.04), 0 20px 60px -20px rgba(0,0,0,0.6);
+    animation: card-in 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes card-in {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    letter-spacing: 0.06em;
+    margin: 0 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .eyebrow::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  h1 {
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 600;
+    margin: 0 0 6px;
+    letter-spacing: -0.01em;
+  }
+
+  .subtitle {
+    color: var(--muted);
+    font-size: 14px;
+    margin: 0 0 28px;
+    line-height: 1.5;
+  }
+
+  .note {
+    font-size: 12px;
+    color: var(--muted);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-left: 2px solid var(--accent);
+    padding: 10px 12px;
+    border-radius: 6px;
+    margin-bottom: 24px;
+    line-height: 1.5;
+  }
+
+  label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 6px;
+  }
+
+  .field { margin-bottom: 18px; }
+
+  .input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
+  input[type="text"],
+  input[type="password"] {
+    width: 100%;
+    padding: 12px 14px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: var(--body);
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-dim);
+  }
+
+  .password-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .password-row .input-wrap { flex: 1; }
+
+  #toggle-visibility {
+    position: absolute;
+    right: 10px;
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 6px;
+    display: flex;
+    align-items: center;
+    transition: color 0.2s ease;
+  }
+
+  #toggle-visibility:hover { color: var(--text); }
+
+  /* Lock signature element */
+  .lock-badge {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    border-radius: 6px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.4s ease, box-shadow 0.4s ease;
+  }
+
+  .lock-badge.strong {
+    border-color: var(--cyan);
+    box-shadow: 0 0 16px var(--accent-dim), 0 0 8px rgba(34, 211, 238, 0.35);
+  }
+
+  .lock-shackle {
+    transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transform-origin: 12px 9px;
+    stroke: var(--muted);
+  }
+
+  .lock-badge.strong .lock-shackle {
+    stroke: var(--cyan);
+  }
+
+  .lock-body {
+    stroke: var(--muted);
+    fill: none;
+  }
+
+  .lock-badge.strong .lock-body {
+    stroke: var(--cyan);
+  }
+
+  /* strength meter */
+  .strength-meter {
+    display: flex;
+    gap: 4px;
+    margin-top: 10px;
+  }
+
+  .segment {
+    height: 4px;
+    flex: 1;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .segment span {
+    display: block;
+    height: 100%;
+    width: 0%;
+    background: var(--border);
+    transition: width 0.35s ease, background 0.35s ease;
+  }
+
+  .strength-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 8px;
+    letter-spacing: 0.03em;
+  }
+
+  .rules {
+    list-style: none;
+    margin: 16px 0 24px;
+    padding: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .rules li {
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: color 0.25s ease;
+  }
+
+  .rules li .dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1.5px solid var(--border);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .rules li.met { color: var(--text); }
+
+  .rules li.met .dot {
+    border-color: var(--success);
+    background: var(--success);
+    transform: scale(1.1);
+  }
+
+  .rules li.met .dot::after {
+    content: "";
+    width: 4px;
+    height: 7px;
+    border-right: 1.5px solid var(--bg);
+    border-bottom: 1.5px solid var(--bg);
+    transform: rotate(45deg) translate(-1px, -1px);
+  }
+
+  button[type="submit"] {
+    width: 100%;
+    padding: 13px;
+    background: linear-gradient(135deg, var(--accent), #6D28D9);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.15s ease, box-shadow 0.25s ease;
+  }
+
+  button[type="submit"]:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 24px -8px var(--accent);
+  }
+
+  button[type="submit"]:active { transform: translateY(0); }
+
+  button[type="submit"]:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .response-message {
+    font-size: 13px;
+    margin-top: 16px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    display: none;
+    line-height: 1.5;
+  }
+
+  .response-message.show { display: block; animation: card-in 0.3s ease; }
+  .response-message.error { background: rgba(255, 92, 122, 0.1); border: 1px solid rgba(255, 92, 122, 0.3); color: var(--danger); }
+  .response-message.success { background: rgba(52, 211, 153, 0.1); border: 1px solid rgba(52, 211, 153, 0.3); color: var(--success); }
+
+  .hash-output {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--cyan);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    margin-top: 12px;
+    word-break: break-all;
+    line-height: 1.6;
+    display: none;
+  }
+
+  .hash-output.show { display: block; animation: card-in 0.3s ease; }
+  .hash-output .k { color: var(--muted); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .rules { grid-template-columns: 1fr; }
+    .card { padding: 28px 22px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <p class="eyebrow">VAULT.NEW</p>
+  <h1>Create a secured account</h1>
+  <p class="subtitle">Every password is hashed with a random salt before it ever touches storage.</p>
+
+  <div class="note">
+    Demo only — hashing runs in your browser via the Web Crypto API and nothing
+    persists after refresh. A production system still needs a server to do this
+    same hashing and storage; client-side JS can't keep a secret safe on its own.
+  </div>
+
+  <form id="register-form">
+    <div class="field">
+      <label for="username">Username</label>
+      <div class="input-wrap">
+        <input type="text" id="username" autocomplete="username" required>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="password">Password</label>
+      <div class="password-row">
+        <div class="input-wrap">
+          <input type="password" id="password" autocomplete="new-password" required>
+          <button type="button" id="toggle-visibility" aria-label="Show password">
+            <svg id="eye-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+          </button>
+        </div>
+        <div class="lock-badge" id="lock-badge" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+            <path class="lock-shackle" d="M7 10V7a5 5 0 0 1 10 0v3" stroke-linecap="round"/>
+            <rect class="lock-body" x="5" y="10" width="14" height="10" rx="2"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="strength-meter">
+        <div class="segment"><span data-seg="0"></span></div>
+        <div class="segment"><span data-seg="1"></span></div>
+        <div class="segment"><span data-seg="2"></span></div>
+        <div class="segment"><span data-seg="3"></span></div>
+        <div class="segment"><span data-seg="4"></span></div>
+      </div>
+      <p class="strength-label" id="strength-text">Enter a password</p>
+    </div>
+
+    <ul class="rules">
+      <li id="rule-length"><span class="dot"></span>10+ characters</li>
+      <li id="rule-upper"><span class="dot"></span>Uppercase letter</li>
+      <li id="rule-lower"><span class="dot"></span>Lowercase letter</li>
+      <li id="rule-number"><span class="dot"></span>Number</li>
+      <li id="rule-special"><span class="dot"></span>Special character</li>
+    </ul>
+
+    <button type="submit" id="submit-btn">Encrypt &amp; create account</button>
+  </form>
+
+  <div class="response-message" id="response-message"></div>
+  <div class="hash-output" id="hash-output"></div>
+</div>
+
+<script>
+const users = {};
+
+const passwordInput = document.getElementById("password");
+const usernameInput = document.getElementById("username");
+const strengthText = document.getElementById("strength-text");
+const lockBadge = document.getElementById("lock-badge");
+const segments = document.querySelectorAll(".segment span");
+
+const rules = {
+  length:  { el: document.getElementById("rule-length"),  test: pw => pw.length >= 10 },
+  upper:   { el: document.getElementById("rule-upper"),   test: pw => /[A-Z]/.test(pw) },
+  lower:   { el: document.getElementById("rule-lower"),   test: pw => /[a-z]/.test(pw) },
+  number:  { el: document.getElementById("rule-number"),  test: pw => /[0-9]/.test(pw) },
+  special: { el: document.getElementById("rule-special"), test: pw => /[!@#$%^&*(),.?":{}|<>]/.test(pw) },
+};
+
+const commonPasswords = new Set(["password123", "qwerty123", "letmein123", "admin1234"]);
+
+function isPasswordStrong(pw) {
+  for (const key in rules) if (!rules[key].test(pw)) return false;
+  return !commonPasswords.has(pw.toLowerCase());
+}
+
+const strengthColors = ["var(--danger)", "var(--danger)", "var(--warning)", "var(--warning)", "var(--success)"];
+const strengthLabels = ["Enter a password", "Weak", "Fair", "Getting there", "Strong password"];
+
+passwordInput.addEventListener("input", () => {
+  const pw = passwordInput.value;
+  let metCount = 0;
+
+  for (const key in rules) {
+    const passed = rules[key].test(pw);
+    rules[key].el.className = passed ? "met" : "";
+    if (passed) metCount++;
+  }
+
+  segments.forEach((seg, i) => {
+    if (i < metCount) {
+      seg.style.width = "100%";
+      seg.style.background = strengthColors[metCount - 1];
+    } else {
+      seg.style.width = "0%";
+    }
+  });
+
+  strengthText.textContent = pw.length === 0 ? strengthLabels[0] : strengthLabels[metCount];
+  strengthText.style.color = metCount === 0 ? "var(--muted)" : strengthColors[Math.max(metCount - 1, 0)];
+
+  lockBadge.classList.toggle("strong", metCount === 5);
+});
+
+document.getElementById("toggle-visibility").addEventListener("click", (e) => {
+  const btn = e.currentTarget;
+  const showing = passwordInput.type === "text";
+  passwordInput.type = showing ? "password" : "text";
+  btn.setAttribute("aria-label", showing ? "Show password" : "Hide password");
+  document.getElementById("eye-icon").style.opacity = showing ? "1" : "0.5";
+});
+
+async function hashPassword(password, saltHex) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(saltHex + password);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function generateSalt() {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function showMessage(text, type) {
+  const el = document.getElementById("response-message");
+  el.textContent = text;
+  el.className = "response-message show " + type;
+}
+
+document.getElementById("register-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const username = usernameInput.value.trim();
+  const password = passwordInput.value;
+  const hashOutputEl = document.getElementById("hash-output");
+  const submitBtn = document.getElementById("submit-btn");
+  hashOutputEl.className = "hash-output";
+
+  if (!username || !password) return showMessage("Username and password are required.", "error");
+  if (users[username]) return showMessage("Username already taken.", "error");
+  if (!isPasswordStrong(password)) return showMessage("Password doesn't meet the requirements above.", "error");
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Hashing...";
+
+  const salt = generateSalt();
+  const hash = await hashPassword(password, salt);
+  users[username] = { salt, hash };
+
+  await new Promise(r => setTimeout(r, 350)); // let the "hashing" moment breathe
+
+  submitBtn.disabled = false;
+  submitBtn.textContent = "Encrypt & create account";
+
+  showMessage(`Account "${username}" created — password hashed and stored (session only).`, "success");
+  hashOutputEl.classList.add("show");
+  hashOutputEl.innerHTML = `<span class="k">salt</span>  ${salt}<br><span class="k">hash</span>  ${hash}`;
+
+  passwordInput.value = "";
+  passwordInput.dispatchEvent(new Event("input"));
+});
+</script>
+
+</body>
+</html>

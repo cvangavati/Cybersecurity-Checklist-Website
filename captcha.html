@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login Security - CAPTCHA</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    body {
+      background-color: #0d1117;
+      color: #c9d1d9;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+    }
+
+    .captcha-card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 24px;
+      width: 100%;
+      max-width: 360px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .captcha-card h3 {
+      margin-top: 0;
+      color: #58a6ff;
+      font-size: 1.1rem;
+      border-bottom: 1px solid #30363d;
+      padding-bottom: 8px;
+    }
+
+    .canvas-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+
+    #captchaCanvas {
+      background-color: #21262d;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+    }
+
+    .refresh-btn {
+      background-color: #21262d;
+      border: 1px solid #30363d;
+      color: #c9d1d9;
+      padding: 10px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 1rem;
+      transition: background-color 0.2s;
+    }
+
+    .refresh-btn:hover {
+      background-color: #30363d;
+    }
+
+    .input-group {
+      margin-bottom: 15px;
+    }
+
+    .input-group input {
+      width: 100%;
+      padding: 10px;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #f0f6fc;
+      font-size: 0.95rem;
+    }
+
+    .input-group input:focus {
+      outline: none;
+      border-color: #58a6ff;
+    }
+
+    .submit-btn {
+      width: 100%;
+      padding: 10px;
+      background-color: #238636;
+      border: 1px solid rgba(240, 246, 252, 0.1);
+      border-radius: 6px;
+      color: #ffffff;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    .submit-btn:hover {
+      background-color: #2ea043;
+    }
+
+    #captchaMessage {
+      margin-top: 12px;
+      font-size: 0.875rem;
+      text-align: center;
+      font-weight: 600;
+    }
+
+    .success {
+      color: #3fb950;
+    }
+
+    .error {
+      color: #f85149;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="captcha-card">
+    <h3>Login Verification (CAPTCHA)</h3>
+    
+    <div class="canvas-container">
+      <canvas id="captchaCanvas" width="200" height="60"></canvas>
+      <button type="button" class="refresh-btn" id="refreshBtn" title="Refresh CAPTCHA">🔄</button>
+    </div>
+
+    <form id="captchaForm">
+      <div class="input-group">
+        <input 
+          type="text" 
+          id="captchaInput" 
+          placeholder="Enter the code above" 
+          autocomplete="off" 
+          required 
+        />
+      </div>
+      <button type="submit" class="submit-btn">Verify CAPTCHA</button>
+    </form>
+
+    <div id="captchaMessage"></div>
+  </div>
+
+  <script>
+    let currentCaptchaText = "";
+
+    const canvas = document.getElementById("captchaCanvas");
+    const ctx = canvas.getContext("2d");
+    const refreshBtn = document.getElementById("refreshBtn");
+    const captchaInput = document.getElementById("captchaInput");
+    const captchaForm = document.getElementById("captchaForm");
+    const captchaMessage = document.getElementById("captchaMessage");
+
+    // Generate random alphanumeric text
+    function generateCaptchaText(length = 6) {
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+      let result = "";
+      for (let i = 0; i < length; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return result;
+    }
+
+    // Render CAPTCHA with noise distortion onto canvas
+    function drawCaptcha() {
+      currentCaptchaText = generateCaptchaText();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Background fill
+      ctx.fillStyle = "#21262d";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Add noise: Random background lines
+      for (let i = 0; i < 7; i++) {
+        ctx.strokeStyle = `rgba(255, 255, 255, ${Math.random() * 0.3 + 0.1})`;
+        ctx.lineWidth = Math.random() * 2 + 1;
+        ctx.beginPath();
+        ctx.moveTo(Math.random() * canvas.width, Math.random() * canvas.height);
+        ctx.lineTo(Math.random() * canvas.width, Math.random() * canvas.height);
+        ctx.stroke();
+      }
+
+      // Add noise: Random dots
+      for (let i = 0; i < 30; i++) {
+        ctx.fillStyle = `rgba(255, 255, 255, ${Math.random() * 0.4})`;
+        ctx.beginPath();
+        ctx.arc(Math.random() * canvas.width, Math.random() * canvas.height, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Draw distorted characters
+      const charWidth = canvas.width / (currentCaptchaText.length + 1);
+      ctx.font = "bold 28px 'Courier New', monospace";
+
+      for (let i = 0; i < currentCaptchaText.length; i++) {
+        const char = currentCaptchaText[i];
+        ctx.save();
+        
+        // Position character
+        const x = (i + 0.8) * charWidth;
+        const y = canvas.height / 2 + 8;
+        
+        ctx.translate(x, y);
+        // Random rotation between -20 and 20 degrees
+        ctx.rotate((Math.random() - 0.5) * 0.6);
+
+        ctx.fillStyle = ["#58a6ff", "#3fb950", "#d29922", "#f85149", "#a371f7"][Math.floor(Math.random() * 5)];
+        ctx.fillText(char, -10, 0);
+        
+        ctx.restore();
+      }
+    }
+
+    // Event listeners
+    refreshBtn.addEventListener("click", () => {
+      drawCaptcha();
+      captchaMessage.textContent = "";
+      captchaInput.value = "";
+    });
+
+    captchaForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const userValue = captchaInput.value.trim();
+
+      if (userValue === currentCaptchaText) {
+        captchaMessage.className = "success";
+        captchaMessage.textContent = "✓ CAPTCHA verified successfully!";
+      } else {
+        captchaMessage.className = "error";
+        captchaMessage.textContent = "✗ Incorrect CAPTCHA. Please try again.";
+        drawCaptcha();
+        captchaInput.value = "";
+      }
+    });
+
+    // Initial load
+    drawCaptcha();
+  </script>
+</body>
+</html>

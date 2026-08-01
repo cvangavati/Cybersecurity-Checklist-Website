@@ -1,0 +1,68 @@
+{
+  "locale": "es",
+  "messages": [
+    {
+      "id": "m1",
+      "class": "standard",
+      "priority": 1,
+      "triggerAffinity": ["login_success", "email_change_initiated", "security_settings_viewed"],
+      "title": "Revise la dirección real del remitente",
+      "body": "Un correo de estafa puede mostrar un nombre en el que usted confía. La dirección real puede usar un dominio parecido con una letra rara. Lea la dirección completa cada vez.",
+      "actions": ["report_phishing", "acknowledge_dismiss"]
+    },
+    {
+      "id": "m2",
+      "class": "standard",
+      "priority": 1,
+      "triggerAffinity": ["login_success", "security_settings_viewed"],
+      "title": "Mire antes de tocar",
+      "body": "No necesita tocar un enlace para revisarlo. En una computadora, coloque el mouse sobre el enlace para ver a dónde va. En un teléfono, mantenga presionado el enlace. Si se ve raro, no lo abra.",
+      "actions": ["report_phishing", "acknowledge_dismiss"]
+    },
+    {
+      "id": "m3",
+      "class": "standard",
+      "priority": 1,
+      "triggerAffinity": ["login_success", "password_change_initiated", "security_settings_viewed"],
+      "title": "La prisa y el miedo son una señal de alerta",
+      "body": "Las estafas intentan apresurarlo. Le dicen que su cuenta se cerrará o que debe actuar rápido. El miedo es la señal más clara de una estafa. Tómese su tiempo.",
+      "actions": ["report_phishing", "acknowledge_dismiss"]
+    },
+    {
+      "id": "m4",
+      "class": "standard",
+      "priority": 1,
+      "triggerAffinity": ["login_success", "password_change_initiated", "email_change_initiated", "security_settings_viewed", "new_payee_or_transfer_setup"],
+      "title": "Lo que nunca pediremos",
+      "body": "Nunca le pediremos su contraseña, códigos de un solo uso ni el número completo de su tarjeta por correo, texto o teléfono. Si un mensaje pide eso, es una estafa. Repórtelo aquí.",
+      "actions": ["report_phishing", "go_to_security_settings", "acknowledge_dismiss"]
+    },
+    {
+      "id": "m5",
+      "class": "standard",
+      "priority": 1,
+      "triggerAffinity": ["password_change_initiated", "security_settings_viewed"],
+      "title": "Si cree que hizo clic en una estafa",
+      "body": "Manténgase tranquilo. Cambie su contraseña aquí en la app ahora. No use un enlace que le enviaron. Luego comuníquese con nuestro equipo de soporte a través de la app.",
+      "actions": ["go_to_security_settings", "report_phishing", "acknowledge_dismiss"]
+    },
+    {
+      "id": "r1",
+      "class": "risk_event",
+      "priority": 3,
+      "triggerAffinity": ["new_device_login"],
+      "title": "Se inició sesión desde un dispositivo nuevo",
+      "body": "Un dispositivo nuevo acaba de iniciar sesión en su cuenta. Si fue usted, puede ignorar esta nota. Si no fue usted, cambie su contraseña ahora.",
+      "actions": ["act_now", "acknowledge_dismiss"]
+    },
+    {
+      "id": "r2",
+      "class": "risk_event",
+      "priority": 3,
+      "triggerAffinity": ["new_geo_login"],
+      "title": "Inicio de sesión desde un lugar nuevo",
+      "body": "Su cuenta se usó desde un lugar nuevo. Si fue usted, puede ignorar esta nota. Si no fue usted, cambie su contraseña ahora.",
+      "actions": ["act_now", "acknowledge_dismiss"]
+    }
+  ]
+}
